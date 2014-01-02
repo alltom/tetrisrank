@@ -2,15 +2,18 @@ import Data.Map (Map, empty)
 import Data.Maybe (mapMaybe)
 import Data.List (intercalate)
 import Debug.Trace (trace)
+import qualified Data.HashTable.IO as H
+import Data.Hashable
 
 data Piece = Piece [(Int, Int)]
-data Surface = Surface [Int]
+data Surface = Surface [Int] deriving Eq
+type HashTable = H.BasicHashTable Surface Float
 
-instance Show Surface where
-	show (Surface []) = "** empty surface **"
-	show surface = unlines $ map (showRow surface) (rows surface) where
-		rows (Surface cols) = reverse [0 .. maximum cols - 1]
-		showRow (Surface cols) col = map (\c -> if c > col then '*' else ' ') cols
+initialize :: IO (HashTable)
+initialize = do
+	ht <- H.new
+	H.insert ht emptySurface 0.0
+	return ht
 
 instance Show Piece where
 	show piece = unlines $ map (showRow piece) (rows piece) where
@@ -18,6 +21,15 @@ instance Show Piece where
 			colMins = map fst cols
 			colMaxes = map snd cols
 		showRow (Piece cols) col = map (\(min, max) -> if col >= min && col < max then '*' else ' ') cols
+
+instance Show Surface where
+	show (Surface []) = "** empty surface **"
+	show surface = unlines $ map (showRow surface) (rows surface) where
+		rows (Surface cols) = reverse [0 .. maximum cols - 1]
+		showRow (Surface cols) col = map (\c -> if c > col then '*' else ' ') cols
+
+instance Hashable Surface where
+	hashWithSalt salt (Surface cols) = hashWithSalt salt cols
 
 iblock :: [Piece]                                 --      *
 iblock = [ Piece [(0, 1), (0, 1), (0, 1), (0, 1)] --      *
@@ -54,11 +66,7 @@ lblock2 = [ Piece [(1, 2), (1, 2), (0, 2)]        -- ***  * *   *
           , Piece [(0, 3), (2, 3)] ]
 
 pieces = iblock ++ oblock ++ tblock ++ sblock ++ zblock ++ lblock ++ lblock2
-
 emptySurface = Surface (0:0:0:0:0:0:0:0:0:0:[])
-testSurface = Surface (1:0:0:0:0:0:0:0:0:0:[])
-testSurface2 = Surface (1:1:2:0:0:0:0:0:0:0:[])
-testSurface3 = Surface (1:1:2:1:1:1:1:1:1:5:[])
 
 -- find resting baseline of the piece if it can stack with no gaps
 findOffset :: Surface -> Piece -> Int -> Maybe Int
@@ -96,8 +104,9 @@ placePieceAnywhere (Surface scols) (Piece pcols) =
 
 -- tries to place every kind of piece in every column, returning the resulting surfaces
 nextSurfaces :: Surface -> [Surface]
-nextSurfaces surface = foldl (\surfaces -> \piece -> surfaces ++ (placePieceAnywhere surface piece)) [] pieces
+nextSurfaces surface = concatMap (\piece -> placePieceAnywhere surface piece) pieces
 
+-- "adds one" to a surface, returning Nothing if every column is full
 incrementSurface :: Int -> Int -> Surface -> Maybe Surface
 incrementSurface minHeight maxHeight (Surface (col:cols)) =
 	if col < maxHeight then Just (Surface ((col + 1):cols))
@@ -107,19 +116,24 @@ incrementSurface minHeight maxHeight (Surface (col:cols)) =
 			Nothing -> Nothing
 			Just (Surface rest) -> Just (Surface (minHeight:rest)))
 
+-- list of every possible surface starting with emptySurface
+allSurfaces :: [Surface]
 allSurfaces = rest emptySurface where
 	rest surface = surface : next where
-		next = case incrementSurface 0 2 surface of
-			Just surface -> rest surface
+		next = case incrementSurface 0 4 surface of
+			Just surface' -> rest surface'
 			Nothing -> []
 
-normalizeSurface surface = helper surface where
+-- makes the lowest height 1 and clamps the tallest column
+canonicalizeSurface :: Surface -> Surface
+canonicalizeSurface surface = helper surface where
 	minHeight (Surface cols) = minimum cols
 	baseline = minHeight surface
 	helper (Surface []) = Surface []
 	helper (Surface (col:cols)) = Surface ((clamp (col - baseline) 0 4):rest) where
 		Surface rest = helper (Surface cols)
 
+clamp :: Int -> Int -> Int -> Int
 clamp i min max | i < min = min | i > max = max | otherwise = i
 
 --hashSurface :: Surface -> Int
