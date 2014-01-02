@@ -5,31 +5,14 @@ import Debug.Trace (trace)
 import qualified Data.HashTable.IO as H
 import Data.Hashable
 import System.Random
+import Control.Monad
 
 data Piece = Piece [(Int, Int)]
 data Surface = Surface [Int] deriving Eq
 type HashTable = H.BasicHashTable Surface Float
 
-numColumns = 5
-maxHeight = 4
-
-rand :: (Num a, Random a) => IO a
-rand = newStdGen >>= return . fst . randomR (0,1)
-
-randFloat :: IO Float
-randFloat = rand
-
-rands :: (Num a, Random a) => IO [a]
-rands = newStdGen >>= return . randomRs (0,1)
-
-randFloats :: IO [Float]
-randFloats = rands
-
-initialize :: IO (HashTable)
-initialize = do
-	floats <- randFloats
-	ht <- H.fromListWithSizeHint ((maxHeight + 1)^(numColumns)) $ zip allSurfaces floats
-	return ht
+numColumns = 10
+maxHeight = 6
 
 instance Show Piece where
 	show piece = unlines $ map (showRow piece) (rows piece) where
@@ -81,6 +64,7 @@ lblock2 = [ Piece [(1, 2), (1, 2), (0, 2)]        -- ***  * *   *
           , Piece [(0, 2), (0, 1), (0, 1)]
           , Piece [(0, 3), (2, 3)] ]
 
+pieceClasses = [iblock, oblock, tblock, sblock, zblock, lblock, lblock2]
 pieces = iblock ++ oblock ++ tblock ++ sblock ++ zblock ++ lblock ++ lblock2
 emptySurface = Surface $ map (\_ -> 0) [1..numColumns]
 
@@ -152,6 +136,63 @@ canonicalizeSurface surface = helper surface where
 clamp :: Int -> Int -> Int -> Int
 clamp i min max | i < min = min | i > max = max | otherwise = i
 
---hashSurface :: Surface -> Int
---hashSurface (Surface cols) = foldl combine 0 cols where
---	combine hash col = hash + (clamp col 0 4)
+rand :: (Num a, Random a) => IO a
+rand = newStdGen >>= return . fst . randomR (0,1)
+
+randFloat :: IO Float
+randFloat = rand
+
+rands :: (Num a, Random a) => IO [a]
+rands = newStdGen >>= return . randomRs (0,1)
+
+randFloats :: IO [Float]
+randFloats = rands
+
+initialize :: IO HashTable
+initialize = do
+	floats <- randFloats
+	ht <- H.fromListWithSizeHint ((maxHeight + 1)^(numColumns)) $ zip allSurfaces floats
+	return ht
+
+iteration :: HashTable -> IO HashTable
+iteration ht = do
+	ht' <- copy ht
+	forM_ allSurfaces (rescore ht ht')
+	return ht'
+
+nIterations :: Int -> HashTable -> IO HashTable
+nIterations n = foldr (<=<) return (replicate n iteration)
+
+copy :: HashTable -> IO HashTable
+copy ht = H.toList ht >>= H.fromList
+
+rescore :: HashTable -> HashTable -> Surface -> IO ()
+rescore ht ht' surface = do
+	-- TODO: calculate rank of surface
+	score <- rankSurface ht surface
+	H.insert ht' surface score
+
+-- Returns the average rankPiece(iteration, stack, piece) of all 7 pieces
+rankSurface :: HashTable -> Surface -> IO Float
+rankSurface ht surface = do
+	scores <- mapM (rankPieces ht surface) pieceClasses
+	return $ mean scores
+
+-- Returns the best rankOrientation(iteration, stack, piece, orientation) of all orientations of a piece
+rankPieces :: HashTable -> Surface -> [Piece] -> IO Float
+rankPieces ht surface pieces = do
+	scores <- mapM (rankPiece ht surface) pieces
+	return $ maximum scores
+
+-- Attempts to place the given piece in the given orientation on the given stack, in all possible locations on the stack where it can fit without creating holes beneath the stack's surface. A set of new stack surfaces is generated from these placements. This function returns the highest previously computed rank(iteration-1, new_stack_surface) of all of the new stack surfaces
+rankPiece :: HashTable -> Surface -> Piece -> IO Float
+rankPiece ht surface piece = do
+	let surfaces = placePieceAnywhere surface piece
+	maybeScores <- mapM (H.lookup ht) surfaces
+	let scores = mapMaybe id maybeScores
+	case scores of
+		[] -> return 0.0
+		otherwise -> return $ maximum scores
+
+-- why can't I find this in a library? it calculates the mean of a list
+mean = uncurry (/) . foldr (\e (s,c) -> (e+s,c+1)) (0,0)
