@@ -11,8 +11,9 @@ data Piece = Piece [(Int, Int)]
 data Surface = Surface [Int] deriving Eq
 type HashTable = H.BasicHashTable Surface Float
 
-numColumns = 10
-maxHeight = 6
+numColumns = 9
+maxHeight = 4
+numPossibleSurfaces = (maxHeight + 1)^(numColumns)
 
 instance Show Piece where
 	show piece = unlines $ map (showRow piece) (rows piece) where
@@ -150,12 +151,14 @@ randFloats = rands
 
 initialize :: IO HashTable
 initialize = do
+	putStrLn "initialize..."
 	floats <- randFloats
-	ht <- H.fromListWithSizeHint ((maxHeight + 1)^(numColumns)) $ zip allSurfaces floats
+	ht <- H.fromListWithSizeHint numPossibleSurfaces $ zip allSurfaces floats
 	return ht
 
 iteration :: HashTable -> IO HashTable
 iteration ht = do
+	putStrLn "iteration..."
 	ht' <- copy ht
 	forM_ allSurfaces (rescore ht ht')
 	return ht'
@@ -164,7 +167,10 @@ nIterations :: Int -> HashTable -> IO HashTable
 nIterations n = foldr (<=<) return (replicate n iteration)
 
 copy :: HashTable -> IO HashTable
-copy ht = H.toList ht >>= H.fromList
+copy ht = do
+	ht' <- H.newSized numPossibleSurfaces
+	H.mapM_ (\(k, v) -> H.insert ht' k v) ht
+	return ht'
 
 rescore :: HashTable -> HashTable -> Surface -> IO ()
 rescore ht ht' surface = do
@@ -188,11 +194,16 @@ rankPieces ht surface pieces = do
 rankPiece :: HashTable -> Surface -> Piece -> IO Float
 rankPiece ht surface piece = do
 	let surfaces = placePieceAnywhere surface piece
-	maybeScores <- mapM (H.lookup ht) surfaces
+	maybeScores <- mapM (H.lookup ht . canonicalizeSurface) surfaces
 	let scores = mapMaybe id maybeScores
 	case scores of
 		[] -> return 0.0
 		otherwise -> return $ maximum scores
 
 -- why can't I find this in a library? it calculates the mean of a list
-mean = uncurry (/) . foldr (\e (s,c) -> (e+s,c+1)) (0,0)
+mean = uncurry (/) . foldr (\e (s, c) -> (e+s, c+1)) (0, 0)
+
+main = do
+	ht <- initialize >>= nIterations 50
+	items <- H.toList ht
+	forM_ items (\(surface, score) -> print score)
