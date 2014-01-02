@@ -1,10 +1,23 @@
 import Data.Map (Map, empty)
 import Data.Maybe (mapMaybe)
+import Data.List (intercalate)
+import Debug.Trace (trace)
 
 data Piece = Piece [(Int, Int)]
 data Surface = Surface [Int]
 
--- 10 columns
+instance Show Surface where
+	show (Surface []) = "** empty surface **"
+	show surface = unlines $ map (showRow surface) (rows surface) where
+		rows (Surface cols) = reverse [0 .. maximum cols - 1]
+		showRow (Surface cols) col = map (\c -> if c > col then '*' else ' ') cols
+
+instance Show Piece where
+	show piece = unlines $ map (showRow piece) (rows piece) where
+		rows (Piece cols) = reverse [minimum colMins .. maximum colMaxes - 1] where
+			colMins = map fst cols
+			colMaxes = map snd cols
+		showRow (Piece cols) col = map (\(min, max) -> if col >= min && col < max then '*' else ' ') cols
 
 iblock :: [Piece]                                 --      *
 iblock = [ Piece [(0, 1), (0, 1), (0, 1), (0, 1)] --      *
@@ -45,6 +58,7 @@ pieces = iblock ++ oblock ++ tblock ++ sblock ++ zblock ++ lblock ++ lblock2
 emptySurface = Surface (0:0:0:0:0:0:0:0:0:0:[])
 testSurface = Surface (1:0:0:0:0:0:0:0:0:0:[])
 testSurface2 = Surface (1:1:2:0:0:0:0:0:0:0:[])
+testSurface3 = Surface (1:1:2:1:1:1:1:1:1:5:[])
 
 -- find resting baseline of the piece if it can stack with no gaps
 findOffset :: Surface -> Piece -> Int -> Maybe Int
@@ -84,38 +98,30 @@ placePieceAnywhere (Surface scols) (Piece pcols) =
 nextSurfaces :: Surface -> [Surface]
 nextSurfaces surface = foldl (\surfaces -> \piece -> surfaces ++ (placePieceAnywhere surface piece)) [] pieces
 
-learn :: (Map [Int] Int)
-learn = empty
+incrementSurface :: Int -> Int -> Surface -> Maybe Surface
+incrementSurface minHeight maxHeight (Surface (col:cols)) =
+	if col < maxHeight then Just (Surface ((col + 1):cols))
+	else (case cols of
+		[] -> Nothing
+		otherwise -> case incrementSurface minHeight maxHeight (Surface cols) of
+			Nothing -> Nothing
+			Just (Surface rest) -> Just (Surface (minHeight:rest)))
+
+allSurfaces = rest emptySurface where
+	rest surface = surface : next where
+		next = case incrementSurface 0 2 surface of
+			Just surface -> rest surface
+			Nothing -> []
+
+normalizeSurface surface = helper surface where
+	minHeight (Surface cols) = minimum cols
+	baseline = minHeight surface
+	helper (Surface []) = Surface []
+	helper (Surface (col:cols)) = Surface ((clamp (col - baseline) 0 4):rest) where
+		Surface rest = helper (Surface cols)
+
+clamp i min max | i < min = min | i > max = max | otherwise = i
 
 --hashSurface :: Surface -> Int
 --hashSurface (Surface cols) = foldl combine 0 cols where
 --	combine hash col = hash + (clamp col 0 4)
-
---clamp i min max | i < min = min | i > max = max | otherwise = i
-
-instance Show Surface where
-	show (Surface []) = "** empty surface **"
-	show surface = unlines $ map (showRow surface) (rows surface) where
-		rows (Surface cols) = reverse [minimum cols .. maximum cols - 1]
-		showRow (Surface cols) col = map (\c -> if c > col then '*' else ' ') cols
-
-instance Show Piece where
-	show piece = unlines $ map (showRow piece) (rows piece) where
-		rows (Piece cols) = reverse [minimum colMins .. maximum colMaxes - 1] where
-			colMins = map fst cols
-			colMaxes = map snd cols
-		showRow (Piece cols) col = map (\(min, max) -> if col >= min && col < max then '*' else ' ') cols
-
-
--- piece.min - board.max
-
--- [0, 0]
--- [3, 4]
--- = [-3, -4]
-
--- [0, 0]
--- [0, 1]
--- = [0, -1]
-
--- -min(piece - board)
-
