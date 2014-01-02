@@ -4,15 +4,31 @@ import Data.List (intercalate)
 import Debug.Trace (trace)
 import qualified Data.HashTable.IO as H
 import Data.Hashable
+import System.Random
 
 data Piece = Piece [(Int, Int)]
 data Surface = Surface [Int] deriving Eq
 type HashTable = H.BasicHashTable Surface Float
 
+numColumns = 5
+maxHeight = 4
+
+rand :: (Num a, Random a) => IO a
+rand = newStdGen >>= return . fst . randomR (0,1)
+
+randFloat :: IO Float
+randFloat = rand
+
+rands :: (Num a, Random a) => IO [a]
+rands = newStdGen >>= return . randomRs (0,1)
+
+randFloats :: IO [Float]
+randFloats = rands
+
 initialize :: IO (HashTable)
 initialize = do
-	ht <- H.new
-	H.insert ht emptySurface 0.0
+	floats <- randFloats
+	ht <- H.fromListWithSizeHint ((maxHeight + 1)^(numColumns)) $ zip allSurfaces floats
 	return ht
 
 instance Show Piece where
@@ -66,7 +82,7 @@ lblock2 = [ Piece [(1, 2), (1, 2), (0, 2)]        -- ***  * *   *
           , Piece [(0, 3), (2, 3)] ]
 
 pieces = iblock ++ oblock ++ tblock ++ sblock ++ zblock ++ lblock ++ lblock2
-emptySurface = Surface (0:0:0:0:0:0:0:0:0:0:[])
+emptySurface = Surface $ map (\_ -> 0) [1..numColumns]
 
 -- find resting baseline of the piece if it can stack with no gaps
 findOffset :: Surface -> Piece -> Int -> Maybe Int
@@ -107,20 +123,20 @@ nextSurfaces :: Surface -> [Surface]
 nextSurfaces surface = concatMap (\piece -> placePieceAnywhere surface piece) pieces
 
 -- "adds one" to a surface, returning Nothing if every column is full
-incrementSurface :: Int -> Int -> Surface -> Maybe Surface
-incrementSurface minHeight maxHeight (Surface (col:cols)) =
+incrementSurface :: Surface -> Maybe Surface
+incrementSurface (Surface (col:cols)) =
 	if col < maxHeight then Just (Surface ((col + 1):cols))
 	else (case cols of
 		[] -> Nothing
-		otherwise -> case incrementSurface minHeight maxHeight (Surface cols) of
+		otherwise -> case incrementSurface (Surface cols) of
 			Nothing -> Nothing
-			Just (Surface rest) -> Just (Surface (minHeight:rest)))
+			Just (Surface rest) -> Just (Surface (0:rest)))
 
 -- list of every possible surface starting with emptySurface
 allSurfaces :: [Surface]
 allSurfaces = rest emptySurface where
 	rest surface = surface : next where
-		next = case incrementSurface 0 4 surface of
+		next = case incrementSurface surface of
 			Just surface' -> rest surface'
 			Nothing -> []
 
@@ -130,7 +146,7 @@ canonicalizeSurface surface = helper surface where
 	minHeight (Surface cols) = minimum cols
 	baseline = minHeight surface
 	helper (Surface []) = Surface []
-	helper (Surface (col:cols)) = Surface ((clamp (col - baseline) 0 4):rest) where
+	helper (Surface (col:cols)) = Surface ((clamp (col - baseline) 0 maxHeight):rest) where
 		Surface rest = helper (Surface cols)
 
 clamp :: Int -> Int -> Int -> Int
