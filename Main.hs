@@ -159,18 +159,12 @@ initialize = do
 iteration :: HashTable -> IO HashTable
 iteration ht = do
 	putStrLn "iteration..."
-	ht' <- copy ht
+	ht' <- H.newSized numPossibleSurfaces
 	forM_ allSurfaces (rescore ht ht')
 	return ht'
 
 nIterations :: Int -> HashTable -> IO HashTable
 nIterations n = foldr (<=<) return (replicate n iteration)
-
-copy :: HashTable -> IO HashTable
-copy ht = do
-	ht' <- H.newSized numPossibleSurfaces
-	H.mapM_ (\(k, v) -> H.insert ht' k v) ht
-	return ht'
 
 rescore :: HashTable -> HashTable -> Surface -> IO ()
 rescore ht ht' surface = do
