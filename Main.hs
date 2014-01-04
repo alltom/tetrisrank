@@ -168,7 +168,6 @@ nIterations n = foldr (<=<) return (replicate n iteration)
 
 rescore :: HashTable -> HashTable -> Surface -> IO ()
 rescore ht ht' surface = do
-	-- TODO: calculate rank of surface
 	score <- rankSurface ht surface
 	H.insert ht' surface score
 
