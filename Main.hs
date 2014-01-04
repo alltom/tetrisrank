@@ -149,6 +149,7 @@ rands = newStdGen >>= return . randomRs (0,1)
 randFloats :: IO [Float]
 randFloats = rands
 
+-- initialize a hash table with random scores for all surfaces
 initialize :: IO HashTable
 initialize = do
 	putStrLn "initialize..."
@@ -156,6 +157,7 @@ initialize = do
 	ht <- H.fromListWithSizeHint numPossibleSurfaces $ zip allSurfaces floats
 	return ht
 
+-- perform one iteration of the ranking algorithm
 iteration :: HashTable -> IO HashTable
 iteration ht = do
 	putStrLn "iteration..."
@@ -163,31 +165,33 @@ iteration ht = do
 	forM_ allSurfaces (rescore ht ht')
 	return ht'
 
+-- perform the given number of iterations
 nIterations :: Int -> HashTable -> IO HashTable
 nIterations n = foldr (<=<) return (replicate n iteration)
 
+-- calculates the score of the given surface given ht and puts it in ht'
 rescore :: HashTable -> HashTable -> Surface -> IO ()
 rescore ht ht' surface = do
-	score <- rankSurface ht surface
+	score <- rankSurface (H.lookup ht) surface
 	H.insert ht' surface score
 
--- Returns the average rankPiece(iteration, stack, piece) of all 7 pieces
-rankSurface :: HashTable -> Surface -> IO Float
-rankSurface ht surface = do
-	scores <- mapM (rankPieces ht surface) pieceClasses
+-- returns the average score of placing each of the 7 types of pieces on the given surface
+rankSurface :: (Surface -> IO (Maybe Float)) -> Surface -> IO Float
+rankSurface lookupLastSurfaceScore surface = do
+	scores <- mapM (rankPieces lookupLastSurfaceScore surface) pieceClasses
 	return $ mean scores
 
--- Returns the best rankOrientation(iteration, stack, piece, orientation) of all orientations of a piece
-rankPieces :: HashTable -> Surface -> [Piece] -> IO Float
-rankPieces ht surface pieces = do
-	scores <- mapM (rankPiece ht surface) pieces
+-- returns the highest score of any placement of any of the given pieces
+rankPieces :: (Surface -> IO (Maybe Float)) -> Surface -> [Piece] -> IO Float
+rankPieces lookupLastSurfaceScore surface pieces = do
+	scores <- mapM (rankPiece lookupLastSurfaceScore surface) pieces
 	return $ maximum scores
 
--- Attempts to place the given piece in the given orientation on the given stack, in all possible locations on the stack where it can fit without creating holes beneath the stack's surface. A set of new stack surfaces is generated from these placements. This function returns the highest previously computed rank(iteration-1, new_stack_surface) of all of the new stack surfaces
-rankPiece :: HashTable -> Surface -> Piece -> IO Float
-rankPiece ht surface piece = do
+-- returns highest score for the placement of the given piece on the given surface
+rankPiece :: (Surface -> IO (Maybe Float)) -> Surface -> Piece -> IO Float
+rankPiece lookupLastSurfaceScore surface piece = do
 	let surfaces = placePieceAnywhere surface piece
-	maybeScores <- mapM (H.lookup ht . canonicalizeSurface) surfaces
+	maybeScores <- mapM (lookupLastSurfaceScore . canonicalizeSurface) surfaces
 	let scores = mapMaybe id maybeScores
 	case scores of
 		[] -> return 0.0
